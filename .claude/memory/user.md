@@ -14,13 +14,13 @@ type: user
 
 ## SSH Hosts (for internet research — Golden Rule 10)
 
-| Name | IP | Status |
-|------|----|--------|
-| dev | 192.168.40.100 | **This machine** — Claude runs here |
-| foxtrot | 192.168.40.101 | ✅ SSH works (`ssh 192.168.40.101`) |
-| ubuntu01 | 192.168.40.11 | ⚠️ Key auth failing — needs investigation |
+| Name | IP | Account | Status |
+|------|----|---------|--------|
+| dev | 192.168.40.100 | chris | **This machine** — Claude runs here |
+| foxtrot | 192.168.40.101 | chris | ✅ SSH works |
+| ubuntu01 | 192.168.40.11 | **claude** | ✅ SSH works — **PRIMARY for scripts and research** |
 
-**Use foxtrot for internet research.** SSH key in authorized_keys on foxtrot. ubuntu01 needs key fix before it can be used.
+**Primary:** `ssh claude@192.168.40.11` — ubuntu01 is the normal machine for running scripts and internet research. Use this first. Foxtrot as fallback.
 
 **Accessibility:** Chris has fibromyalgia — hands very sore. Voice input preferred where possible. Repeat key decisions in plain language; don't assume he remembers earlier context.
 
