@@ -5,9 +5,10 @@ type: project
 ---
 ## Contribution Status
 
-- **Fork:** chrisb1964/AetherSDR (remote: `fork`)
-- **Upstream:** ten9876/AetherSDR (remote: `origin`)
-- **Current version:** 0.9.4
+- **Fork:** chrisb1964/AetherSDR (remote: `origin`)
+- **Upstream:** ten9876/AetherSDR (remote: `upstream`)
+- **Current version:** 26.5.1 (CalVer — switched from semver at v0.9.8)
+- **Fork synced:** 2026-05-14 (merged upstream/main through commit ca62065)
 
 ## Last Merged PR
 
@@ -15,14 +16,18 @@ type: project
 - **Commit:** 8c856e3
 - **Status:** Merged to upstream main ✅
 
-## Known Bugs in AetherSDR (from bug audit)
+## Known Bugs — Status as of 2026-05-14
 
 See `.claude/research/aethersdr-bug-audit.md` for full details.
 
-1. **TGXL forward power not resetting after TX ends** — `pttA` transition 1→0 doesn't zero `m_forwardPower`. Draft fix in research file.
-2. **PGXL power level not resetting after TX ends** — `setState()` doesn't zero `m_outputPower` on TRANSMIT→non-TRANSMIT. Draft fix in research file.
-3. **PGXL fan mode buttons** — commands exist (FAN:NORMAL/CONTEST/BROADCAST on port 9008), UI bindings partially implemented.
-4. **EFF/meffa label** — clarity issue in TunerControl display.
+1. **TGXL forward power not resetting after TX ends** — `m_fwdPower` in TunerModel.cpp is never zeroed when pttA drops. No PTT state handling in TunerModel at all. STILL EXISTS.
+2. **PGXL power gauge not resetting after TX ends** — AmpApplet::setState() changes button label/color but does not zero the Fwd Power gauge. Partial fix #2437 (OPERATE/STANDBY sync) landed but did NOT fix power reset. STILL EXISTS.
+3. **PGXL fan mode buttons** — PgxlConnection.cpp has NO FAN commands at all (only 149 lines). UI not implemented. STILL EXISTS.
+4. **EFF/meffa label** — FIXED by #2444 (`fix(amp): forward radio amplifier telemetry to AmpApplet`). AmpApplet::setMeff() now shows "MEffA: {value}" label correctly.
+
+## Firmware Version Update
+
+- Reference radio now on **fw 4.2.18** (was 4.1.5 in old CLAUDE.md — updated upstream)
 
 ## Contribution Opportunities
 
