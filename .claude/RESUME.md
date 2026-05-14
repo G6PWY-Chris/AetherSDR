@@ -13,28 +13,42 @@
 9. Chris has health conditions that affect memory. Document EVERYTHING as we go — decisions, fixes, configs, and the WHY behind them. RESUME.md must always reflect current state. Disaster recovery is a top priority: every service needs a clear recovery path written down so the cluster can be rebuilt without relying on memory.
 ## Last completed work
 
-- **2026-05-14** — Synced fork: merged upstream/main (ca62065) into chrisb1964/AetherSDR. 154 files changed, project now at v26.5.1 (CalVer).
-- **Bug audit updated** — Bug #4 (meffa label) FIXED upstream by #2444. Bugs 1–3 still open.
-- **Golden Rule added** — Rule 10: SSH to dev/ubuntu01/foxtrot before any internet research.
+- **2026-05-14** — PR #2642 opened: fix(gui) TOT display in minutes not ms (Fixes #2617). Screenshot attached. Awaiting CI + Jeremy.
+- **2026-05-14** — Local build fixed: installed libssl-dev, CMake now uses system OpenSSL 3.0.13
+- **2026-05-14** — git ship workflow fixed: two-step (ship + ship-pr), branches from upstream/main only
+
+## PR status
+
+- **PR #2642** — OPEN — fix(gui): display TX timeout in minutes instead of milliseconds
+
+## git workflow — CORRECT PROCEDURE
+
+1. `git ship fix/<branch-name>` — creates clean branch from upstream/main, switches to it
+2. Make changes, `git commit -S -m "..."`
+3. `git ship-pr` — pushes to fork, opens PR
+**NEVER commit fixes to local main — .claude/ metadata bleeds into PR diff**
+
+## CMake build (local) — always use these flags
+
+```
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DOPENSSL_ROOT_DIR=/usr -DOPENSSL_USE_STATIC_LIBS=OFF
+```
 
 ## Bug status (3 remaining)
 
-1. **TGXL fwd power not resetting** — TunerModel.cpp never zeroes m_fwdPower on PTT release. No pttA handling at all. Candidate for our next PR.
-2. **PGXL power gauge not resetting** — AmpApplet::setState() doesn't zero the gauge on TRANSMIT→IDLE. #2437 fixed button only.
+1. **TGXL fwd power not resetting** — TunerModel.cpp never zeroes m_fwdPower on PTT release.
+2. **PGXL power gauge not resetting** — AmpApplet::setState() doesn't zero gauge on TRANSMIT→IDLE.
 3. **PGXL fan mode** — PgxlConnection.cpp has zero FAN commands. Full feature work needed.
 
 ## Next work
 
-1. SSH to dev/ubuntu01/foxtrot (check which is up) before doing any GitHub research
-2. File GitHub issue for Bug 1 (TGXL fwd power reset) — clearest bug, most likely to be accepted
-3. Implement fix in TunerModel.cpp, test with live TGXL, use `git ship` to open PR
+1. Wait for PR #2642 CI + review
+2. Pick next issue: #2445 (filter buttons not highlighting) or #2393 (PGXL power erratic)
+3. Use correct git ship workflow — branch from upstream/main first
 
 ## Key reminders
 
-- Firmware now **4.2.18** (was 4.1.5) — update any protocol comments
-- Version now **CalVer 26.5.1** (not semver)
-- Signed commits required: `git commit -S`
-- CI must pass before PR is mergeable
-- Read CONTRIBUTING.md before any change
-- Jeremy (KK7GWY) is the maintainer — design decisions need his review
-- **GOLDEN RULE:** SSH to dev/ubuntu01/foxtrot before going onto the internet
+- Firmware **4.2.18**, version **CalVer 26.5.1**
+- Signed commits: `git commit -S`
+- CI must pass, Jeremy reviews all src/ changes
+- **GOLDEN RULE:** `ssh claude@192.168.40.11` before any internet research
