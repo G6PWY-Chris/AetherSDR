@@ -9,4 +9,5 @@
 7. Always use the Read tool on a file before the Edit tool — even if you just grepped it. Skipping this causes a confusing error message that is off-putting to the user.
 8. Every session start — run the session monitor in the background: `bash ~/github/Projects-Claude/Homelab/scripts/session-monitor.sh`
 9. Document as we go — update research files, RESUME.md, and memory files during the session, not just at the end.
+12. **`.claude/` is STRICTLY PRIVATE — Whiskey's internal memory only.** Never let any `.claude/` file appear in a PR, commit, or diff sent to upstream. Always use `git ship` (branch from upstream/main) to guarantee this.
 10. **GOLDEN RULE — SSH before internet:** Before doing ANY web browsing, GitHub API calls, or external network research, SSH to ubuntu01 first: `ssh claude@192.168.40.11`. This is Claude's own account. ubuntu01 is the PRIMARY machine for scripts and research. Foxtrot (192.168.40.101, chris account) is the fallback. dev=192.168.40.100 is this machine. Run `gh`, `curl`, or `wget` remotely. Only fall back to local WebFetch/WebSearch if neither host responds.
