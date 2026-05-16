@@ -13,13 +13,14 @@
 9. Chris has health conditions that affect memory. Document EVERYTHING as we go — decisions, fixes, configs, and the WHY behind them. RESUME.md must always reflect current state. Disaster recovery is a top priority: every service needs a clear recovery path written down so the cluster can be rebuilt without relying on memory.
 ## Last completed work
 
-- **2026-05-14** — PR #2642 opened: fix(gui) TOT display in minutes not ms (Fixes #2617). Screenshot attached. Awaiting CI + Jeremy.
+- **2026-05-16** — PR #2642 MERGED (fc9e859 area). Jeremy approved. CI all green. Fix title changed to "seconds" not "minutes" during review (reviewer noted seconds have better resolution).
+- **2026-05-16** — Session start: rebased local main onto upstream/main (skipped already-merged 200a302). Fork (origin/main) needs force-push — pending user sign-off.
 - **2026-05-14** — Local build fixed: installed libssl-dev, CMake now uses system OpenSSL 3.0.13
 - **2026-05-14** — git ship workflow fixed: two-step (ship + ship-pr), branches from upstream/main only
 
 ## PR status
 
-- **PR #2642** — OPEN — fix(gui): display TX timeout in minutes instead of milliseconds
+- **PR #2642** — MERGED ✓ — fix(gui): display TX timeout in seconds instead of milliseconds
 
 ## git workflow — CORRECT PROCEDURE
 
@@ -42,7 +43,7 @@ cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DOPENSSL_ROOT_DIR=/us
 
 ## Next work
 
-1. Wait for PR #2642 CI + review
+1. Force-push fork (origin/main) after user sign-off — `git push --force-with-lease origin main`
 2. Pick next issue: #2445 (filter buttons not highlighting) or #2393 (PGXL power erratic)
 3. Use correct git ship workflow — branch from upstream/main first
 
