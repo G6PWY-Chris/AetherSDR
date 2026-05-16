@@ -43,9 +43,28 @@ cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DOPENSSL_ROOT_DIR=/us
 
 ## Next work
 
-1. Force-push fork (origin/main) after user sign-off — `git push --force-with-lease origin main`
-2. Pick next issue: #2445 (filter buttons not highlighting) or #2393 (PGXL power erratic)
-3. Use correct git ship workflow — branch from upstream/main first
+1. Pick next issue: #2445 (filter buttons not highlighting) or #2393 (PGXL power erratic)
+2. Use correct git ship workflow — branch from upstream/main first
+3. Do a full build with Qt 6.11.1 (GPU spectrum) when ready — see cmake command below
+
+## Build — Qt 6.11.1 (GPU spectrum enabled)
+
+```bash
+# From /home/chris/github/Projects-Claude/AetherSDR-git
+cmake -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCMAKE_PREFIX_PATH="$HOME/Qt/6.11.1/gcc_64" \
+  -DOPENSSL_ROOT_DIR=/usr \
+  -DOPENSSL_USE_STATIC_LIBS=OFF
+cmake --build build -j$(nproc)
+```
+
+Missing deps still needed before build:
+```bash
+sudo apt install -y libfftw3-dev portaudio19-dev libhidapi-dev qtkeychain-qt6-dev libxkbcommon-dev libopengl-dev
+```
+
+ENABLE_BNR (NVIDIA NIM) skipped — requires RTX 4000+ and grpc++. GTX 1080 Ti not supported.
 
 ## Key reminders
 
