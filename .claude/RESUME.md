@@ -14,7 +14,7 @@
 
 ## Last completed work
 
-- **2026-05-17** — PR #2823 OPEN — feat(models): add RadioModel::autoSaveChanged signal, wire ProfileManagerDialog (issue #2794). Awaiting CI + Jeremy review.
+- **2026-05-17** — PR #2823 OPEN — feat(models): add RadioModel::autoSaveChanged signal, wire ProfileManagerDialog (issue #2794). Opus adversarial review: PASS, recommend merge as-is. Awaiting CI + Jeremy review.
 - **2026-05-16** — PR #2642 MERGED ✓ — fix(gui): display TX timeout in seconds instead of milliseconds
 - **2026-05-16** — Session start: rebased local main onto upstream/main (skipped already-merged 200a302).
 - **2026-05-14** — Local build fixed: installed libssl-dev, CMake now uses system OpenSSL 3.0.13
@@ -49,9 +49,9 @@ Qt 6.11.1 build currently broken — Qt6Multimedia not found at expected path ev
 
 ## Next work
 
-1. Pick next issue — candidates: #2743 (DIGU squelch split, high priority) or #2445/#2393
+1. Pick next issue — top candidate: #2743 (DIGU squelch split, priority: high) — split combined squelch command to match FlexLib, ~6 caller sites
 2. Use corrected git workflow above — NOT git ship alias
-3. User preference: use Opus for PR review/code review at end of sessions
+3. End-of-session: always run Opus adversarial review before declaring done (saved to memory)
 
 ## Build — Qt 6.11.1 (GPU spectrum enabled)
 
