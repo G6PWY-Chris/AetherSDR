@@ -49,9 +49,12 @@ Qt 6.11.1 build currently broken — Qt6Multimedia not found at expected path ev
 
 ## Next work
 
-1. Pick next issue — top candidate: #2743 (DIGU squelch split, priority: high) — split combined squelch command to match FlexLib, ~6 caller sites
-2. Use corrected git workflow above — NOT git ship alias
-3. End-of-session: always run Opus adversarial review before declaring done (saved to memory)
+1. Pick next issue — #2743 already fixed upstream (in PR #2820). Browse for next candidate.
+2. PGXL power discrepancy investigation — defer until after a monitoring session. PGXL has NO hardware ALC — power is manual via rfpower. APC is internal safety only. PGXL talks to radio directly over LAN, not via AetherSDR client.
+3. TGXL fwd power not resetting — TunerModel.cpp never zeroes m_fwdPower on PTT release (FlexRadioSuite already has the fix pattern)
+4. Upload FlexLib API + hardware manuals to homelab wiki (private — never GitHub)
+5. Use corrected git workflow — NOT git ship alias
+6. End-of-session: always run Opus adversarial review before declaring done
 
 ## Build — Qt 6.11.1 (GPU spectrum enabled)
 
