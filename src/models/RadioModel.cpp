@@ -25,6 +25,8 @@ namespace AetherSDR {
 
 namespace {
 
+constexpr int kMinUsablePanYpixels = 100;
+
 QJsonArray toJsonArray(const QStringList& values)
 {
     QJsonArray array;
@@ -393,6 +395,9 @@ RadioModel::RadioModel(QObject* parent)
         m_transmitModel.setMox(false);
     });
     connect(&m_dvkModel, &DvkModel::commandReady, this, [this](const QString& cmd){
+        sendCmd(cmd);
+    });
+    connect(&m_flexWaveformModel, &FlexWaveformModel::commandReady, this, [this](const QString& cmd){
         sendCmd(cmd);
     });
     connect(&m_navtexModel, &NavtexModel::commandReady, this, [this](const QString& cmd){
@@ -2115,6 +2120,7 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
             sendCmd("sub navtex all");
             sendCmd("sub usb_cable all");
             sendCmd("sub spot all");
+            sendCmd("sub waveform all");
             sendCmd("sub license all");
             }); // sub xvtr all
             }); // sub client all
@@ -2311,6 +2317,7 @@ void RadioModel::onDisconnected()
     m_activePanId.clear();
     m_ownedSliceIds.clear();
     m_tnfModel.clear();
+    m_flexWaveformModel.clear();
     if (!m_memories.isEmpty()) {
         m_memories.clear();
         emit memoriesCleared();
@@ -2706,6 +2713,27 @@ void RadioModel::handleMemoryStatus(int index, const QMap<QString, QString>& kvs
 
 void RadioModel::onMessageReceived(const ParsedMessage& msg)
 {
+    if (msg.type == MessageType::Message) {
+        // Log everything to the protocol channel at the matching level so the
+        // diagnostic trail is uniform.  The user-facing decision (silent log,
+        // warning dialog, error dialog) is made in MainWindow::onRadioMessage
+        // based on the same severity, so the two paths can't disagree.
+        switch (msg.severity) {
+        case MessageSeverity::Info:
+            qCInfo(lcProtocol) << "Radio M-message [Info]:" << msg.object;
+            break;
+        case MessageSeverity::Warning:
+            qCWarning(lcProtocol) << "Radio M-message [Warning]:" << msg.object;
+            break;
+        case MessageSeverity::Error:
+        case MessageSeverity::Fatal:
+            qCCritical(lcProtocol) << "Radio M-message [Error/Fatal]:" << msg.object;
+            break;
+        }
+        emit radioMessageReceived(msg.object, msg.severity);
+        return;
+    }
+
     // Meter status uses '#' as KV separator (not spaces), so the normal
     // parseKVs() in CommandParser doesn't handle it.  We intercept the raw
     // status line here and parse it ourselves.
@@ -4060,6 +4088,22 @@ void RadioModel::onStatusReceived(const QString& object,
         return;
     }
 
+    // Waveform status — three sub-shapes introduced in firmware v4.2.18.
+    // CommandParser already disambiguates via the object field; no regex needed.
+    // FlexLib Radio.cs ParseWaveformStatus (line 11247). (#2136)
+    if (object == QLatin1String("waveform")) {
+        m_flexWaveformModel.handleInstalledList(kvs);
+        return;
+    }
+    if (object == QLatin1String("waveform container")) {
+        m_flexWaveformModel.handleContainerStatus(kvs);
+        return;
+    }
+    if (object == QLatin1String("waveform wfp_status")) {
+        m_flexWaveformModel.handleWfpStatus(kvs);
+        return;
+    }
+
     // WAN, etc. — informational, ignore for now.
 }
 
@@ -4376,7 +4420,7 @@ void RadioModel::handleMeterStatus(const QString& rawBody)
         MeterDef def;
         def.index = it.key();
         if (fields.contains("src"))  def.source      = fields["src"];
-        if (fields.contains("num"))  def.sourceIndex  = fields["num"].toInt();
+        if (fields.contains("num"))  def.sourceIndex  = fields["num"].toInt(nullptr, 0);
         if (fields.contains("nam"))  def.name         = fields["nam"];
         if (fields.contains("unit")) def.unit         = fields["unit"];
         if (fields.contains("low"))  def.low          = fields["low"].toDouble();
@@ -4449,8 +4493,9 @@ void RadioModel::handlePanadapterStatus(const QString& panId, const QMap<QString
     // load) and re-request correct dimensions from MainWindow.
     if (kvs.contains("y_pixels") && pan) {
         int yPix = kvs["y_pixels"].toInt();
-        if (yPix > 0)
+        if (yPix > kMinUsablePanYpixels) {
             m_panStream->setYPixels(pan->panStreamId(), yPix);
+        }
     }
     if ((kvs.contains("x_pixels") || kvs.contains("y_pixels")) && pan) {
         int xPix = kvs.value("x_pixels", "0").toInt();

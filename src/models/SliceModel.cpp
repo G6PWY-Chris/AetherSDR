@@ -275,10 +275,20 @@ void SliceModel::setAgcOffLevel(int value)
 
 void SliceModel::setSquelch(bool on, int level)
 {
+    level = qBound(0, level, 100);
+    const bool onChanged = (m_squelchOn != on);
+    const bool levelChanged = (m_squelchLevel != level);
+
     m_squelchOn    = on;
     m_squelchLevel = level;
-    sendCommand(QString("slice set %1 squelch=%2 squelch_level=%3")
-                    .arg(m_id).arg(on ? 1 : 0).arg(level));
+
+    // FlexLib sends these as separate radio commands. Some firmware/mode
+    // combinations reject the combined form even though each field is valid.
+    if (onChanged)
+        sendCommand(QString("slice set %1 squelch=%2").arg(m_id).arg(on ? 1 : 0));
+    if (levelChanged)
+        sendCommand(QString("slice set %1 squelch_level=%2").arg(m_id).arg(level));
+
     emit squelchChanged(on, level);
 }
 
@@ -550,9 +560,10 @@ void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
 
         // Radio sometimes sends wrong-polarity filter offsets after session
         // restore (e.g. negative offsets for USB/DIGU). Normalize based on mode.
-        const bool isUsbFamily = (m_mode == "USB" || m_mode == "DIGU" || m_mode == "FDV"
+        const bool isUsbFamily = (m_mode == "USB" || m_mode == "DIGU"
+                                  || m_mode == "FDV" || m_mode == "FDVU"
                                   || m_mode == "NT");  // NAVTEX: USB-family digital (v4.2.18)
-        const bool isLsbFamily = (m_mode == "LSB" || m_mode == "DIGL");
+        const bool isLsbFamily = (m_mode == "LSB" || m_mode == "DIGL" || m_mode == "FDVL");
         if (isUsbFamily && m_filterLow < 0 && m_filterHigh <= 0) {
             // Flip: -2700,0 → 0,2700
             int w = std::abs(m_filterLow);

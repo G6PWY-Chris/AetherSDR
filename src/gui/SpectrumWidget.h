@@ -29,6 +29,14 @@ namespace AetherSDR {
 class SpectrumOverlayMenu;
 class VfoWidget;
 
+// Shared timeout for the dBm-range echo handshake between MainWindow's
+// request-side tracker (wirePanadapter / PendingDbmRange) and SpectrumWidget's
+// echo-side tracker (m_pendingDbmRangeEcho).  Both ends must expire on the
+// same interval — if the request side stays patient longer than the echo
+// side, the spectrum can drop the echo while MainWindow is still waiting
+// for a match (and vice versa).  Keep them tied to this one constant.
+inline constexpr qint64 kDbmRangeHandshakeTimeoutMs = 2000;
+
 // Waterfall color scheme presets.
 enum class WfColorScheme : int {
     Default = 0,   // black → dark blue → blue → cyan → green → yellow → red
@@ -67,6 +75,7 @@ class SpectrumWidget : public SPECTRUM_BASE_CLASS {
 
 public:
     explicit SpectrumWidget(QWidget* parent = nullptr);
+    ~SpectrumWidget() override;
 
     // Per-pan settings persistence
     void setPanIndex(int idx) { m_panIndex = idx; }
@@ -75,11 +84,14 @@ public:
     void loadSettings();
 
     QSize sizeHint() const override { return {800, 300}; }
+    int spectrumPixelHeight() const;
 
     // Set the frequency range covered by this panadapter.
     void setFrequencyRange(double centerMhz, double bandwidthMhz);
     void clearDisplay();  // blank spectrum and waterfall on disconnect
     void resetGpuResources();  // tear down GPU pipelines for reparenting (#1240)
+    void prepareForTopLevelChange(); // unregister QRhiWidget from the current backing-store QRhi
+    void prepareForShutdown(); // tear down QRhi/native resources before QWidget backing store destruction
     void setConnectionAnimationVisible(bool on, const QString& label = {});
     void showInterlockNotification(const QString& message, int durationMs = 5000);
 
@@ -102,6 +114,7 @@ public:
     // so the state and value survive launch.
     void setNoiseFloorPosition(int pos);
     void setNoiseFloorEnable(bool on);
+    void prepareForFftScaleChange();
     void reacquireNoiseFloorLock();
 
     // Two-pass trimmed-mean noise floor from live FFT bins (dBm), EMA-smoothed.
@@ -168,6 +181,11 @@ public:
     VfoWidget* addVfoWidget(int sliceId);
     void       removeVfoWidget(int sliceId);
     void       setActiveVfoWidget(int sliceId);
+    // True if the slice has a split partner whose own VFO flag is rendered on
+    // the opposite side via LockLeft / LockRight.  panFollowVfo() uses this
+    // to extend the pan-follow trigger on both sides so neither flag clips
+    // the pan edge (#2761).
+    bool sliceHasSplitPartner(int sliceId) const;
 
     // WNB and RF gain state for on-screen indicators.
     bool wnbActive()   const { return m_wnbActive; }
@@ -363,7 +381,7 @@ public:
                            const QString& sourceLabel = {});
     void clearSwrSweepPoints();
 
-    void setShowSpots(bool on) { m_showSpots = on; update(); }
+    void setShowSpots(bool on) { m_showSpots = on; m_hoveredSpotKey.clear(); update(); }
     bool showSpots() const { return m_showSpots; }
     void setShowSHistory(bool on)    { m_showSHistory = on;    update(); }
     bool showSHistory() const         { return m_showSHistory; }
@@ -456,6 +474,7 @@ signals:
     void dbmRangeChangeRequested(float minDbm, float maxDbm);
     void dbmRangeDragFinished(float minDbm, float maxDbm);
     void noiseFloorPositionResolved(int pos);
+    void waterfallLineDurationChangeRequested(int ms);
     // TNF signals
     void tnfCreateRequested(double freqMhz);
     void tnfMoveRequested(int id, double newFreqMhz);
@@ -468,7 +487,8 @@ signals:
     void sliceTuneRequested(int sliceId, double freqMhz);
     void popOutRequested(bool popOut);  // true=float, false=dock
     void sliceTxRequested(int sliceId);
-    // Emitted on resize so MainWindow can re-push xpixels/ypixels to the radio (#1511)
+    // Emitted when FFT bin-mapping dimensions change so MainWindow can re-push
+    // xpixels/ypixels to the radio (#1511).
     void dimensionsChanged(int w, int h);
     // Spot signals
     void spotAddRequested(double freqMhz, const QString& callsign,
@@ -570,14 +590,15 @@ private:
     void applyNoiseFloorAutoAdjust(qint64 nowMs);
     void moveRefLevelToward(float targetRef, qint64 nowMs);
     void sendNoiseFloorRangeCommand(qint64 nowMs, bool force);
+    void clearDbmReleaseRebase();
     // Reset the baseline tracker — called on any input change (zoom,
     // band switch, manual dBm drag) so the next frame re-acquires
     // rather than smooths from a stale value.
     void resetNoiseFloorBaseline();
-    // Re-capture the target frac. Slider changes use m_noiseFloorPosition;
-    // manual dBm-scale changes can capture the floor's current screen position.
-    void refreshNoiseFloorTarget(bool captureCurrentScale = false);
-    bool captureNoiseFloorTargetFromCurrentScale(bool notify);
+    // Re-capture the target frac. Explicit user changes (slider/right dBm bar)
+    // can persist; startup/enable/layout refreshes only rebuild transient state.
+    void refreshNoiseFloorTarget(bool captureCurrentScale = false, bool persistCapture = false);
+    bool captureNoiseFloorTargetFromCurrentScale(bool notify, bool persist);
 
     // Helper: find overlay index for a sliceId, or -1.
     int overlayIndex(int sliceId) const;
@@ -596,6 +617,7 @@ private:
 
     QVector<float> m_bins;       // raw FFT frame (dBm)
     QVector<float> m_smoothed;   // exponential-smoothed for visual stability
+    bool m_shutdownPrepared{false};
 
     double m_centerMhz{14.225};
     double m_bandwidthMhz{0.200};
@@ -616,9 +638,13 @@ private:
     float m_dynamicRange{100.0f};   // dB range shown in spectrum (-50 to -150)
     bool  m_resetFftSmoothingOnNextFrame{false};
     bool  m_pendingDbmRangeEcho{false};
+    bool  m_pendingDbmRangeEchoFromAutoFloor{false};
     qint64 m_pendingDbmRangeEchoStartMs{0};
     int   m_holdFftUpdatesAfterDbmRelease{0};
-    float m_dbmReleasePreviewOffset{0.0f};
+    float m_dbmReleasePreviewOldMinDbm{0.0f};
+    float m_dbmReleasePreviewOldMaxDbm{0.0f};
+    float m_dbmReleasePreviewNewMinDbm{0.0f};
+    float m_dbmReleasePreviewNewMaxDbm{0.0f};
     float m_pendingMinDbm{0.0f};
     float m_pendingMaxDbm{0.0f};
 
@@ -641,6 +667,7 @@ private:
     qint64 m_noiseFloorLastSampleMs{0};
     qint64 m_noiseFloorLastMotionMs{0};
     qint64 m_noiseFloorLastCommandMs{0};
+    qint64 m_noiseFloorScaleSettlingUntilMs{0};
     float  m_noiseFloorLastCommandRef{-1000.0f};
     bool   m_noiseFloorCandidateValid{false};
     float  m_noiseFloorCandidateDbm{-1000.0f};
@@ -719,8 +746,10 @@ private:
     int    m_wfHistoryOffsetRows{0};
     bool   m_wfLive{true};
     bool   m_draggingTimeScale{false};
+    bool   m_draggingTimeScaleRate{false};
     int    m_timeScaleDragStartY{0};
     int    m_timeScaleDragStartOffsetRows{0};
+    int    m_timeScaleDragStartLineDuration{100};
     static constexpr qint64 kWaterfallHistoryMs = 20LL * 60LL * 1000LL;
 
     // True once we receive native waterfall tile data (PCC 0x8004).
@@ -854,11 +883,6 @@ private:
     bool     m_wfTimeScaleLocked{false};
 
 
-    // Client-side row averaging (Rate slider)
-    int      m_wfAvgTarget{1};   // how many tiles to average into one row
-    int      m_wfAvgCount{0};    // tiles accumulated so far
-    QVector<float> m_wfAvgBins;  // accumulated intensity values
-
     // Lightweight diagnostics overlay toggled from View -> FPS Meters.
     bool m_showFpsMeters{false};
     QTimer* m_fpsMeterTimer{nullptr};
@@ -883,8 +907,11 @@ private:
         QRect rect;
         double freqMhz;
         int markerIndex;  // index into m_spotMarkers for tooltip data
+        QString callsign; // stable hover key (index can go stale on list rebuild)
     };
     QVector<SpotHitRect> m_spotClickRects;
+    QString m_hoveredSpotKey;          // callsign@freqKHz, empty when no spot hovered
+    bool    m_tooltipRefreshPending{false}; // guards against duplicate queued refreshes
 
     QVector<SpotCluster> m_spotClusters;
     bool m_showSpots{true};

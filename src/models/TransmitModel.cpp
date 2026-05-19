@@ -27,6 +27,7 @@ void TransmitModel::resetState()
     m_memoriesEnabled = false;
     m_usingMemory = false;
     m_showTxInWaterfall = false;
+    m_txSliceMode.clear();
 
     emit apdStateChanged();
     emit moxChanged(false);
@@ -217,6 +218,10 @@ void TransmitModel::applyTransmitStatus(const QMap<QString, QString>& kvs)
         bool v = kvs["show_tx_in_waterfall"] == "1";
         if (m_showTxInWaterfall != v) { m_showTxInWaterfall = v; changed = true; }
     }
+    if (kvs.contains("tx_slice_mode")) {
+        QString v = kvs["tx_slice_mode"];
+        if (m_txSliceMode != v) { m_txSliceMode = v; changed = true; emit txSliceModeChanged(v); }
+    }
 
     if (changed) emit stateChanged();
     if (tuneChanged_) emit tuneChanged(m_tune);
@@ -404,9 +409,12 @@ void TransmitModel::toggleTwoToneTune()
 {
     if (isTuning()) {
         stopTune();
-        // Restore single-tone so the next regular Tune press isn't surprised
-        // by sticky two-tone state on the radio.
-        setTuneMode("single_tone");
+        // Revert to single_tone after a two-tone shortcut session so the
+        // next regular Tune press isn't surprised by sticky two-tone state
+        // on the radio.  Tune mode is no longer persisted; selecting "Two
+        // Tone" is now a transient one-shot via the TUNE button's right-
+        // click menu in TxApplet.
+        setTuneMode(QStringLiteral("single_tone"));
     } else {
         startTwoToneTune();
     }
@@ -777,7 +785,7 @@ bool TransmitModel::isPhoneModeForQuindar() const
     // tone would corrupt the digital waveform.
     return m == "USB" || m == "LSB"
         || m == "AM"  || m == "FM"  || m == "NFM"
-        || m == "FDV";
+        || m == "FDV" || m == "FDVU" || m == "FDVL";
 }
 
 bool TransmitModel::runPttPreflight(PttSource source, bool resyncMoxOnBlock)

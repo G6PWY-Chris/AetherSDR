@@ -165,6 +165,13 @@ public:
     Q_INVOKABLE void setRn2Enabled(bool on);
     bool rn2Enabled() const { return m_rn2Enabled.load(); }
 
+    // Client-side RN2 — TX path (mic pre-amp).  Runs on the voice path
+    // in onTxAudioReady() AFTER the RADE/DAX early-returns, so digital
+    // modes never see RN2.  Separate instance + atomic from m_rn2 so
+    // RX and TX can be toggled independently.  (#2813)
+    Q_INVOKABLE void setRn2TxEnabled(bool on);
+    bool rn2TxEnabled() const { return m_rn2TxEnabled.load(); }
+
     // Client-side NR4 (libspecbleach spectral noise reduction)
     Q_INVOKABLE void setNr4Enabled(bool on);
     bool nr4Enabled() const { return m_nr4Enabled.load(); }
@@ -387,6 +394,11 @@ public:
     void saveClientReverbSettings();
     void loadClientFinalLimiterSettings();
     void saveClientFinalLimiterSettings() const;
+    // Aetherial Tube Pre-Amp TX state — nested-JSON shape under one key
+    // so future mic-preamp toggles (high-pass, phase invert, etc.) can
+    // land without further migration.  Today: {"rn2": bool}.  (#2813)
+    void loadAetherialTubePreampTxSettings();
+    void saveAetherialTubePreampTxSettings() const;
     void loadClientQuindarSettings();
     void saveClientQuindarSettings() const;
 
@@ -445,6 +457,15 @@ public:
         return m_cwDecodeTxTapEnabled.load(std::memory_order_relaxed);
     }
 
+    void setTncRxTapEnabled(bool on)
+    {
+        m_tncRxTapEnabled.store(on, std::memory_order_relaxed);
+    }
+    bool isTncRxTapEnabled() const
+    {
+        return m_tncRxTapEnabled.load(std::memory_order_relaxed);
+    }
+
 public slots:
     // Receives stripped PCM from PanadapterStream::audioDataReady().
     void feedAudioData(const QByteArray& pcm);
@@ -457,6 +478,7 @@ signals:
     void nr4EnabledChanged(bool on);
     void mnrEnabledChanged(bool on);
     void rn2EnabledChanged(bool on);
+    void rn2TxEnabledChanged(bool on);   // RN2 on the TX mic pre-amp (#2813)
     void bnrEnabledChanged(bool on);
     void bnrConnectionChanged(bool connected);
     void dfnrEnabledChanged(bool on);
@@ -483,6 +505,7 @@ signals:
     // scope.  The shared scopeSamplesReady throttles at 25 ms which made
     // the strip's RX scroll lag wall clock at short time-window settings.
     void rxPostChainScopeReady(const QByteArray& monoFloat32Pcm, int sampleRate);
+    void tncRxAudioReady(const QByteArray& monoFloat32Pcm, int sampleRate);
     void radioTransmittingChanged(bool tx);
     void mutedChanged(bool muted);                          // local audio output mute state
     void inputDeviceChanged();
@@ -508,6 +531,7 @@ private:
     void emitTxPostChainScopeFromInt16Stereo(const QByteArray& pcm, int sampleRate);
     void emitTxPostChainScopeFromFloat32Stereo(const QByteArray& pcm, int sampleRate);
     void emitRxPostChainScopeFromFloat32Stereo(const QByteArray& pcm, int sampleRate);
+    void emitTncRxTapFromFloat32Stereo(const QByteArray& pcm, int sampleRate);
     QByteArray resampleStereo(const QByteArray& pcm);
     void processNr2(const QByteArray& stereoPcm);
     void updateRxBufferStats();
@@ -618,6 +642,7 @@ private:
     QByteArray    m_scopeTxScratch;
     QByteArray    m_scopeTxPostChainScratch;
     QByteArray    m_scopeRxPostChainScratch;
+    QByteArray    m_tncRxTapScratch;
 
     QAudioDevice m_outputDevice;
     QAudioDevice m_inputDevice;
@@ -637,6 +662,7 @@ private:
     // sidetone audio thread so the mirror lambda can return cheaply
     // when TX-decode is off.
     std::atomic<bool> m_cwDecodeTxTapEnabled{false};
+    std::atomic<bool> m_tncRxTapEnabled{false};
     bool  m_txNeedsResample{false};      // TX: input rate != 24kHz, needs resampling
     bool  m_txInputMono{false};          // TX: legacy convenience mirror of m_txInputChannels == 1
     int   m_txInputChannels{2};          // TX: actual negotiated input channel count
@@ -674,6 +700,15 @@ private:
     // Client-side RN2 (RNNoise)
     std::unique_ptr<RNNoiseFilter> m_rn2;
     std::atomic<bool> m_rn2Enabled{false};
+
+    // Client-side RN2 — TX path (mic pre-amp).  Lazy-allocated under
+    // m_dspMutex on toggle-on, freed on toggle-off.  Mirrors the RX
+    // RN2 ownership pattern above.  (#2813)
+    std::unique_ptr<RNNoiseFilter> m_rn2Tx;
+    std::atomic<bool> m_rn2TxEnabled{false};
+    // Scratch buffer for int16 ↔ float32 conversion around RN2 TX.
+    // Audio-thread only — grows once to steady state, then alloc-free.
+    QByteArray m_rn2TxF32In;
 
     // Client-side BNR (NVIDIA NIM)
     std::unique_ptr<NvidiaBnrFilter> m_bnr;

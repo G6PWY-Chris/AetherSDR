@@ -56,7 +56,14 @@ public:
     void updateSplitBadge(bool isTxSlice, bool splitActive);
 
     // Flag direction hint for deconfliction.
-    enum FlagDir { Auto, ForceLeft, ForceRight };
+    //   Auto/ForceLeft/ForceRight participate in the 20-px edge-clip flip:
+    //   if the panel would overrun the spectrum edge, it flips to the other
+    //   side so the panel stays visible.
+    //   LockLeft/LockRight disable that flip and hold the requested side
+    //   even if the panel overruns the edge. Used by split pairs so the
+    //   RX/TX panels stay on their opposite sides instead of collapsing
+    //   onto the same side when the pair is near a pan edge (#2663).
+    enum FlagDir { Auto, ForceLeft, ForceRight, LockLeft, LockRight };
 
     // Reposition relative to VFO marker x coordinate.
     void updatePosition(int vfoX, int specTop, FlagDir dir = Auto);
@@ -76,8 +83,14 @@ public:
     bool isCollapsed() const { return m_collapsed; }
     void setCollapsed(bool collapsed);
 
+    // Which side of the slice marker the flag panel is currently rendered on.
+    // Tracked by updatePosition() via m_lastOnLeft.  Used by panFollowVfo()
+    // to extend the pan-follow trigger to the flag's outer edge — single-side
+    // for non-split slices, both-sides for split pairs (#2761).
+    bool onLeft() const { return m_lastOnLeft; }
+
 #ifdef HAVE_RADE
-    void setRadeActive(bool on);
+    void setRadeActive(bool on, const QString& label = QStringLiteral("RADE"));
     void setRadeSynced(bool synced);
     void setRadeSnr(float snrDb);
     void setRadeFreqOffset(float hz);
@@ -346,6 +359,7 @@ private:
     QLabel*  m_radeSnrLabel{nullptr};       // "12dB" or "---"
     QLabel*  m_radeOffsetLabel{nullptr};    // "+125Hz" — hidden when no data
     bool     m_radeActive{false};
+    QString  m_radeLabel{"RADE"};          // badge prefix: "RADE" or "FreeDV"
 #endif
 
     static constexpr int WIDGET_W = 252;

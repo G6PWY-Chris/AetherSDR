@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AetherSDR VERSION 26.5.1 LANGUAGES C CXX)
+project(AetherSDR VERSION 26.5.2.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -455,6 +455,7 @@ set(CORE_SOURCES
     src/core/IambicKeyer.cpp
     src/core/SpectralNR.cpp
     src/core/PanadapterStream.cpp
+    src/core/PacketLossConcealment.cpp
     src/core/PerfTelemetry.cpp
     src/core/RigctlProtocol.cpp
     src/core/RigctlPty.cpp
@@ -504,6 +505,8 @@ set(CORE_SOURCES
     src/core/SleepInhibitor.cpp
     src/core/MemoryCsvCompat.cpp
     src/core/MemoryRecallPolicy.cpp
+    src/core/tnc/AetherAx25LibmodemShim.cpp
+    src/core/tnc/Ax25FrameFormatter.cpp
 )
 
 if(APPLE)
@@ -526,6 +529,7 @@ endif()
 
 set(MODEL_SOURCES
     src/models/RadioModel.cpp
+    src/models/ModelCapabilities.cpp
     src/models/AntennaAliasStore.cpp
     src/models/SliceModel.cpp
     src/models/PanadapterModel.cpp
@@ -540,6 +544,7 @@ set(MODEL_SOURCES
     src/models/CwxModel.cpp
     src/models/DvkModel.cpp
     src/models/NavtexModel.cpp
+    src/models/FlexWaveformModel.cpp
     src/models/BandSettings.cpp
     src/models/BandPlanManager.cpp
     src/models/XvtrPolicy.cpp
@@ -559,6 +564,7 @@ set(GUI_SOURCES
     src/gui/VfoWidget.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/NetworkDiagnosticsDialog.cpp
+    src/gui/Ax25HfPacketDecodeDialog.cpp
     src/gui/PropDashboardDialog.cpp
     src/gui/MemoryCommands.cpp
     src/gui/MemoryBrowsePanel.cpp
@@ -566,9 +572,11 @@ set(GUI_SOURCES
     src/gui/SpotSettingsDialog.cpp
     src/gui/AetherDspDialog.cpp
     src/gui/AetherDspWidget.cpp
+    src/gui/WaveformsDialog.cpp
     src/gui/ClientRxDspApplet.cpp
     src/gui/DspParamPopup.cpp
     src/gui/DxClusterDialog.cpp
+    src/gui/DxClusterStartupCommandsDialog.cpp
     src/gui/CwxPanel.cpp
     src/gui/BandStackPanel.cpp
     src/gui/FramelessWindowTitleBar.cpp
@@ -580,6 +588,7 @@ set(GUI_SOURCES
     src/gui/PersistentDialog.cpp
     src/gui/ProfileManagerDialog.cpp
     src/gui/ProfileImportExportDialog.cpp
+    src/gui/TxBandDialog.cpp
     src/gui/PanadapterApplet.cpp
     src/gui/PanadapterStack.cpp
     src/gui/PanLayoutDialog.cpp
@@ -749,6 +758,24 @@ else()
     set_source_files_properties(${GGMORSE_SOURCES} PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
+add_library(aether_libmodem_core STATIC
+    third_party/libmodem_core/bitstream.cpp
+    third_party/libmodem_core/demodulator.cpp
+)
+target_include_directories(aether_libmodem_core PUBLIC
+    ${CMAKE_SOURCE_DIR}/third_party/libmodem_core
+)
+target_compile_features(aether_libmodem_core PUBLIC cxx_std_20)
+target_compile_definitions(aether_libmodem_core PUBLIC
+    LIBMODEM_NAMESPACE=aether_libmodem_core
+    "LIBMODEM_NAMESPACE_REFERENCE=aether_libmodem_core::"
+)
+if(MSVC)
+    target_compile_options(aether_libmodem_core PRIVATE /w)
+else()
+    target_compile_options(aether_libmodem_core PRIVATE -w)
+endif()
+
 qt_add_resources(RESOURCES resources.qrc)
 
 add_executable(AetherSDR ${ALL_SOURCES} ${RNNOISE_SOURCES} ${GGMORSE_SOURCES} ${RADE_SOURCES} ${BNR_SOURCES} ${SPECBLEACH_SOURCES} ${RESOURCES})
@@ -819,6 +846,7 @@ target_link_libraries(AetherSDR PRIVATE
     Qt6::Widgets
     Qt6::Network
     Qt6::Multimedia
+    aether_libmodem_core
     zlibstatic           # bundled third_party/zlib 1.3.1
     ${CMAKE_DL_LIBS}   # dlopen/dlsym for tolerant X11 error handler (#1839)
 )
@@ -1282,6 +1310,22 @@ target_include_directories(slice_model_letter_test PRIVATE src)
 target_link_libraries(slice_model_letter_test PRIVATE Qt6::Core Qt6::Test)
 add_test(NAME slice_model_letter_test COMMAND slice_model_letter_test)
 
+add_executable(packet_loss_concealment_test
+    tests/packet_loss_concealment_test.cpp
+    src/core/PacketLossConcealment.cpp
+)
+target_include_directories(packet_loss_concealment_test PRIVATE src)
+target_link_libraries(packet_loss_concealment_test PRIVATE Qt6::Core)
+add_test(NAME packet_loss_concealment_test COMMAND packet_loss_concealment_test)
+
+add_executable(model_capabilities_test
+    tests/model_capabilities_test.cpp
+    src/models/ModelCapabilities.cpp
+)
+target_include_directories(model_capabilities_test PRIVATE src)
+target_link_libraries(model_capabilities_test PRIVATE Qt6::Core)
+add_test(NAME model_capabilities_test COMMAND model_capabilities_test)
+
 add_executable(client_quindar_test
     tests/client_quindar_test.cpp
     src/core/ClientQuindarTone.cpp
@@ -1370,6 +1414,13 @@ add_executable(navtex_model_test
 target_include_directories(navtex_model_test PRIVATE src)
 target_link_libraries(navtex_model_test PRIVATE Qt6::Core Qt6::Test)
 
+add_executable(flex_waveform_model_test
+    tests/flex_waveform_model_test.cpp
+    src/models/FlexWaveformModel.cpp
+)
+target_include_directories(flex_waveform_model_test PRIVATE src)
+target_link_libraries(flex_waveform_model_test PRIVATE Qt6::Core Qt6::Test)
+
 add_executable(ole_compound_file_test
     tests/ole_compound_file_test.cpp
     src/core/OleCompoundFile.cpp
@@ -1437,6 +1488,30 @@ add_executable(cw_sidetone_test
 target_include_directories(cw_sidetone_test PRIVATE src)
 target_link_libraries(cw_sidetone_test PRIVATE Qt6::Core)
 
+add_executable(ax25_frame_formatter_test
+    tests/ax25_frame_formatter_test.cpp
+    src/core/tnc/Ax25FrameFormatter.cpp
+)
+target_include_directories(ax25_frame_formatter_test PRIVATE src)
+target_link_libraries(ax25_frame_formatter_test PRIVATE Qt6::Core)
+add_test(NAME ax25_frame_formatter_test COMMAND ax25_frame_formatter_test)
+
+add_executable(ax25_libmodem_shim_test
+    tests/ax25_libmodem_shim_test.cpp
+    src/core/tnc/AetherAx25LibmodemShim.cpp
+    src/core/tnc/Ax25FrameFormatter.cpp
+    # LogManager.cpp provides lcAx25 (the shim's qCDebug category, #2763);
+    # LogManager.cpp depends on AsyncLogWriter via the m_writer member, so
+    # AppSettings + AsyncLogWriter come along to satisfy the constructor /
+    # destructor chain at link time.
+    src/core/LogManager.cpp
+    src/core/AsyncLogWriter.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(ax25_libmodem_shim_test PRIVATE src)
+target_link_libraries(ax25_libmodem_shim_test PRIVATE Qt6::Core aether_libmodem_core)
+add_test(NAME ax25_libmodem_shim_test COMMAND ax25_libmodem_shim_test)
+
 add_executable(cwx_panel_test
     tests/cwx_panel_test.cpp
     src/gui/CwxPanel.cpp
@@ -1462,6 +1537,36 @@ if(UNIX)
     target_link_libraries(meter_model_test PRIVATE pthread)
 endif()
 set_target_properties(meter_model_test PROPERTIES AUTOMOC ON)
+
+add_executable(async_log_writer_test
+    tests/async_log_writer_test.cpp
+    src/core/AsyncLogWriter.cpp
+)
+target_include_directories(async_log_writer_test PRIVATE src)
+target_link_libraries(async_log_writer_test PRIVATE Qt6::Core)
+if(UNIX)
+    target_link_libraries(async_log_writer_test PRIVATE pthread)
+endif()
+set_target_properties(async_log_writer_test PROPERTIES AUTOMOC ON)
+
+add_executable(perf_telemetry_test
+    tests/perf_telemetry_test.cpp
+    src/core/PerfTelemetry.cpp
+    # LogManager.cpp owns the lcPerf Q_LOGGING_CATEGORY definition (per
+    # Principle III consolidation, #2770); LogManager has AsyncLogWriter
+    # as a member which transitively needs AppSettings, so all three .cpp
+    # files come along to satisfy the ctor/dtor chain at link time.
+    src/core/LogManager.cpp
+    src/core/AsyncLogWriter.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(perf_telemetry_test PRIVATE src)
+target_link_libraries(perf_telemetry_test PRIVATE Qt6::Core)
+if(UNIX)
+    target_link_libraries(perf_telemetry_test PRIVATE pthread)
+endif()
+set_target_properties(perf_telemetry_test PROPERTIES AUTOMOC ON)
+add_test(NAME perf_telemetry_test COMMAND perf_telemetry_test)
 
 add_executable(memory_recall_policy_test
     tests/memory_recall_policy_test.cpp

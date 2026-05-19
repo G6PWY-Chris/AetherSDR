@@ -427,23 +427,14 @@ void RxApplet::buildUI()
 #ifdef HAVE_RADE
             if (mode == "RADE") {
                 emit radeActivated(true, m_slice ? m_slice->sliceId() : -1);
-                if (m_slice) m_slice->setMode(mode);
                 return;
             }
-            // Defense-in-depth (matches the spirit of #2026): only emit
-            // deactivate if THIS slice was actually in RADE.  Read
-            // m_slice->mode() BEFORE setMode() runs below so we see the
-            // pre-change mode.  This is correct across:
-            //   - single-instance setSlice() rebind (always reads from the
-            //     bound slice, no leftover flag state)
-            //   - externally activated RADE (via VfoWidget combo, profile
-            //     load on startup, or MainWindow::activateRADE) — the
-            //     slice's mode is "RADE" regardless of how it got there
-            //   - the multi-pan case where the user swaps USB→LSB on a
-            //     non-RADE slice — slice's mode isn't "RADE", so the
-            //     spurious deactivate is suppressed exactly when intended
-            if (m_slice && m_slice->mode() == "RADE")
-                emit radeActivated(false, m_slice->sliceId());
+            // "RADE" is client-side only — the radio echoes back the real mode
+            // (DIGL/DIGU) immediately, so mode() == "RADE" is never true in
+            // steady state. Emit unconditionally; MainWindow's
+            // sliceId == m_radeSliceId check is the authoritative filter that
+            // prevents spurious deactivations from non-RADE slices (#2026).
+            emit radeActivated(false, m_slice ? m_slice->sliceId() : -1);
 #endif
             if (m_slice) m_slice->setMode(mode);
         });
@@ -2032,9 +2023,9 @@ QString RxApplet::formatHz(int hz)
 QString RxApplet::formatFilterWidth(int lo, int hi, const QString& mode)
 {
     int w;
-    if (mode == "USB" || mode == "DIGU" || mode == "FDV" || mode == "NT")
+    if (mode == "USB" || mode == "DIGU" || mode == "FDV" || mode == "FDVU" || mode == "NT")
         w = hi;
-    else if (mode == "LSB" || mode == "DIGL")
+    else if (mode == "LSB" || mode == "DIGL" || mode == "FDVL")
         w = std::abs(lo);
     else
         w = hi - lo;
@@ -2088,8 +2079,10 @@ void RxApplet::applyFilterPreset(int widthHz)
         // Double-sideband: split width equally around carrier
         lo = -(widthHz / 2);
         hi =  (widthHz / 2);
+    } else if (mode == "FDVL") {
+        lo = -widthHz; hi = -95;
     } else {
-        // USB, FDV, etc. — low cut at 95 Hz to reject carrier/hum
+        // USB, FDVU, FDV, etc. — low cut at 95 Hz to reject carrier/hum
         lo = 95;
         hi = widthHz;
     }

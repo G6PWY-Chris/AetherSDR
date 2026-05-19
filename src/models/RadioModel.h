@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/CommandParser.h"   // MessageSeverity for radioMessageReceived
 #include "core/RadioConnection.h"
 #include "core/WanConnection.h"
 #include "core/PanadapterStream.h"
@@ -19,7 +20,9 @@
 #include "UsbCableModel.h"
 #include "DaxIqModel.h"
 #include "NavtexModel.h"
+#include "FlexWaveformModel.h"
 #include "MemoryEntry.h"
+#include "ModelCapabilities.h"
 #include "RadioStatusOwnership.h"
 
 #include <QObject>
@@ -67,6 +70,7 @@ public:
     NavtexModel&      navtexModel()      { return m_navtexModel; }
     UsbCableModel&    usbCableModel()    { return m_usbCableModel; }
     DaxIqModel&       daxIqModel()       { return m_daxIqModel; }
+    FlexWaveformModel& flexWaveformModel() { return m_flexWaveformModel; }
     bool              hasAmplifier() const { return m_hasAmplifier; }
     bool              ampOperate()   const { return m_ampOperate; }
     QString           ampHandle()    const { return m_ampHandle; }
@@ -131,6 +135,14 @@ public:
     // Max slices reported by radio
     int maxSlices() const { return m_maxSlices; }
     static int maxSlicesForModel(const QString& model);
+
+    // Per-model feature flags from the central ModelCapabilities table.
+    // First consumer is the band selector (#695); future model-conditional
+    // UI should pull from here rather than adding more model.contains()
+    // checks.
+    ModelCapabilities capabilities() const {
+        return capabilitiesFor(m_model);
+    }
 
     // Returns true for BigBend/DragonFire-platform radios (8400, 8600,
     // AU-series, ML-series, CL-series, RT-series) that support the extended
@@ -423,6 +435,12 @@ signals:
     void pingReceived();
     // Generic status relay — for dialogs that need to listen for specific objects.
     void statusReceived(const QString& object, const QMap<QString, QString>& kvs);
+    // Emitted when the radio sends an M-prefix informational, warning, error,
+    // or fatal message.  Severity comes from the high bits of the message
+    // number per FlexLib Radio.cs:4498-4516.  MainWindow uses it to decide
+    // log-only vs. modal-dialog surfacing — Info-severity messages like
+    // "Client connected from IP …" must NOT pop a dialog (#2785).
+    void radioMessageReceived(const QString& text, MessageSeverity severity);
 
 public:
     // Send a raw command to the radio (for dialogs that need direct protocol access).
@@ -531,9 +549,10 @@ private:
     SpotModel        m_spotModel;
     CwxModel         m_cwxModel;
     DvkModel         m_dvkModel;
-    NavtexModel      m_navtexModel;
-    UsbCableModel    m_usbCableModel;
-    DaxIqModel       m_daxIqModel;
+    NavtexModel         m_navtexModel;
+    UsbCableModel       m_usbCableModel;
+    DaxIqModel          m_daxIqModel;
+    FlexWaveformModel   m_flexWaveformModel;
 
     // NetCW stream — VITA-49 UDP delivery for low-latency CW keying
     quint32  m_netCwStreamId{0};

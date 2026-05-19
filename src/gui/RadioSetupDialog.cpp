@@ -1,7 +1,5 @@
 #include "RadioSetupDialog.h"
 #include "CwDecodeSettings.h"
-#include "FramelessResizer.h"
-#include "FramelessWindowTitleBar.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "SliceColorManager.h"
@@ -166,26 +164,15 @@ static void refreshOscillatorSourceCombo(QComboBox* combo, const RadioModel* mod
 RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
                                    TgxlConnection* tgxl, PgxlConnection* pgxl,
                                    AntennaGeniusModel* ag, QWidget* parent)
-    : QDialog(parent), m_model(model), m_audio(audio),
+    : PersistentDialog(QStringLiteral("Radio Setup"),
+                       QStringLiteral("RadioSetupDialogGeometry"), parent),
+      m_model(model), m_audio(audio),
       m_tgxl(tgxl), m_pgxl(pgxl), m_ag(ag)
 {
-    setWindowTitle("Radio Setup");
     setMinimumSize(820, 620);
     setStyleSheet("QDialog { background: #0f0f1a; }");
 
-    auto* outer = new QVBoxLayout(this);
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(0);
-
-    auto* titleBar = new FramelessWindowTitleBar(QStringLiteral("Radio Setup"), this);
-    m_titleBar = titleBar;
-    outer->addWidget(titleBar);
-
-    auto* bodyWidget = new QWidget(this);
-    auto* layout = new QVBoxLayout(bodyWidget);
-    layout->setContentsMargins(9, 9, 9, 9);
-    m_bodyLayout = layout;
-    outer->addWidget(bodyWidget, 1);
+    auto* layout = new QVBoxLayout(bodyWidget());
 
     auto* tabs = new QTabWidget;
     m_tabs = tabs;
@@ -242,46 +229,15 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
         "QPushButton:hover { background: #203040; }");
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::close);
     layout->addWidget(buttons);
-
-    // Restore saved geometry so the dialog reopens at the user's last size.
-    const QString geomB64 = AppSettings::instance()
-        .value("RadioSetupDialogGeometry", "").toString();
-    if (!geomB64.isEmpty())
-        restoreGeometry(QByteArray::fromBase64(geomB64.toLatin1()));
-
-    FramelessResizer::install(this);
-    setFramelessMode(
-        AppSettings::instance().value("FramelessWindow", "True").toString() == "True");
-}
-
-void RadioSetupDialog::setFramelessMode(bool on)
-{
-    const QRect geom = geometry();
-    const bool wasVisible = isVisible();
-
-    Qt::WindowFlags flags = (windowFlags() & ~Qt::WindowType_Mask) | Qt::Dialog;
-    flags.setFlag(Qt::FramelessWindowHint, on);
-    setWindowFlags(flags);
-    if (wasVisible)
-        setGeometry(geom);
-    if (m_titleBar)
-        m_titleBar->setVisible(on);
-    if (m_bodyLayout)
-        m_bodyLayout->setContentsMargins(9, on ? 7 : 9, 9, 9);
-    if (wasVisible)
-        show();
 }
 
 void RadioSetupDialog::closeEvent(QCloseEvent* event)
 {
     // Persist any uncommitted "user cleared IP" edits in the Peripherals
-    // tab before saving + closing.
+    // tab before the base class flushes geometry to AppSettings.
     for (const auto& saver : m_peripheralRowSavers)
         saver();
-    AppSettings::instance().setValue("RadioSetupDialogGeometry",
-        QString::fromLatin1(saveGeometry().toBase64()));
-    AppSettings::instance().save();
-    QDialog::closeEvent(event);
+    PersistentDialog::closeEvent(event);
 }
 
 // ── Radio tab ─────────────────────────────────────────────────────────────────
@@ -1059,7 +1015,16 @@ QWidget* RadioSetupDialog::buildTxTab()
         vbox->addWidget(group);
     }
 
-    // Max Power / Tune Mode / Show TX in Waterfall
+    // Max Power / Show TX in Waterfall / Slice-TX Follow
+    //
+    // Tune Mode (single_tone / two_tone) used to live here too but was
+    // removed — it persisted "Two Tone" across restarts as if it were a
+    // normal operating mode, which surprised users who hit the regular
+    // Tune button later and got an unexpected 2-tone test.  Tune Mode is
+    // now a transient one-shot, surfaced via the TUNE button's right-
+    // click menu in TxApplet ("Mono Tone" / "Two Tone").  Picking either
+    // sets the radio's tune_mode for the next tune cycle only; nothing
+    // is written to AppSettings.
     {
         auto* grid = new QGridLayout;
         grid->setSpacing(6);
@@ -1085,22 +1050,9 @@ QWidget* RadioSetupDialog::buildTxTab()
                 QString("transmit set max_power_level=%1").arg(val));
         });
 
-        auto* tmLbl = new QLabel("Tune Mode:");
-        tmLbl->setStyleSheet(kLabelStyle);
-        grid->addWidget(tmLbl, 1, 0);
-        auto* tmCmb = new QComboBox;
-        tmCmb->addItems({"Single Tone", "Two Tone"});
-        tmCmb->setCurrentText(tx.tuneMode() == "single_tone" ? "Single Tone" : "Two Tone");
-        AetherSDR::applyComboStyle(tmCmb);
-        connect(tmCmb, &QComboBox::currentTextChanged, this, [this](const QString& text) {
-            QString mode = (text == "Single Tone") ? "single_tone" : "two_tone";
-            m_model->sendCommand("transmit set tune_mode=" + mode);
-        });
-        grid->addWidget(tmCmb, 1, 1);
-
         auto* swLbl = new QLabel("Show TX in Waterfall:");
         swLbl->setStyleSheet(kLabelStyle);
-        grid->addWidget(swLbl, 2, 0);
+        grid->addWidget(swLbl, 1, 0);
         auto* swBtn = new QPushButton(tx.showTxInWaterfall() ? "Enabled" : "Disabled");
         swBtn->setCheckable(true);
         swBtn->setChecked(tx.showTxInWaterfall());
@@ -1115,12 +1067,12 @@ QWidget* RadioSetupDialog::buildTxTab()
             m_model->sendCommand(
                 QString("transmit set show_tx_in_waterfall=%1").arg(on ? 1 : 0));
         });
-        grid->addWidget(swBtn, 2, 1);
+        grid->addWidget(swBtn, 1, 1);
 
         // Slice–TX Follow Mode (#441, #1351) — mutually exclusive toggles
         auto* followLbl = new QLabel("Slice/TX Follow:");
         followLbl->setStyleSheet(kLabelStyle);
-        grid->addWidget(followLbl, 3, 0);
+        grid->addWidget(followLbl, 2, 0);
 
         const QString kFollowBtnStyle =
             "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
@@ -1148,7 +1100,7 @@ QWidget* RadioSetupDialog::buildTxTab()
         followRow->addWidget(tfBtn);
         followRow->addWidget(afBtn);
         followRow->addStretch(1);
-        grid->addLayout(followRow, 3, 1);
+        grid->addLayout(followRow, 2, 1);
 
         // Mutual exclusion: enabling one disables the other
         connect(tfBtn, &QPushButton::toggled, this, [tfBtn, afBtn](bool on) {
@@ -1839,6 +1791,43 @@ QWidget* RadioSetupDialog::buildAudioTab()
         compLayout->addWidget(hint);
 
         vbox->addWidget(compGroup);
+    }
+
+    // ── Packet-Loss Concealment ─────────────────────────────────────────
+    // Fades dropped VITA-49 audio packets to silence (uncompressed) or
+    // calls libopus native PLC (Opus) instead of splicing the next packet
+    // directly. Cuts the broadband click on lossy WAN/SmartLink. (#2731)
+    {
+        auto* plcCheck = new QCheckBox(
+            "Smooth packet loss (conceal dropped audio packets)");
+        plcCheck->setStyleSheet("QCheckBox { color: #c8d8e8; font-size: 11px; }");
+        plcCheck->setToolTip(
+            "When the radio's audio stream loses a UDP packet, fade the gap\n"
+            "to silence (uncompressed) or synthesize a perceptually smooth\n"
+            "fill with libopus PLC (Opus) instead of splicing the next packet\n"
+            "directly. Reduces the high-pitch click that the splice produces\n"
+            "on lossy WAN/SmartLink links. Capped at ~80 ms before the audio\n"
+            "drops to clean silence.");
+        plcCheck->setChecked(
+            AppSettings::instance()
+                .value("AudioPacketLossConcealment", "True").toString() == "True");
+        connect(plcCheck, &QCheckBox::toggled, this, [this](bool on) {
+            auto& s = AppSettings::instance();
+            s.setValue("AudioPacketLossConcealment", on ? "True" : "False");
+            s.save();
+            // PanadapterStream lives on the network worker thread (#502);
+            // route the toggle through QueuedConnection so the atomic and
+            // map mutations happen on the owning thread.
+            if (m_model && m_model->panStream()) {
+                QMetaObject::invokeMethod(
+                    m_model->panStream(),
+                    [stream = m_model->panStream(), on]() {
+                        stream->setPacketLossConcealment(on);
+                    },
+                    Qt::QueuedConnection);
+            }
+        });
+        vbox->addWidget(plcCheck);
     }
 
     // ── Prevent Sleep ───────────────────────────────────────────────────

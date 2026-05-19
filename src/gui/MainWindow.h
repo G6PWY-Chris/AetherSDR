@@ -4,6 +4,7 @@
 #include "models/BandSettings.h"
 #include "models/AntennaGeniusModel.h"
 #include "core/AppSettings.h"
+#include "core/CommandParser.h"   // MessageSeverity for onRadioMessage slot
 #include "core/RadioDiscovery.h"
 #include "core/AudioEngine.h"
 #include "core/RigctlServer.h"
@@ -80,10 +81,15 @@ class NetworkDiagnosticsHistory;
 class WhatsNewDialog;
 class ProfileManagerDialog;
 class ProfileImportExportDialog;
+class RadioSetupDialog;
 class NetworkDiagnosticsDialog;
 class MemoryDialog;
+class PropDashboardDialog;
+class TxBandDialog;
 class AetherDspDialog;
+class WaveformsDialog;
 class DxClusterDialog;
+class Ax25HfPacketDecodeDialog;
 class MidiMappingDialog;
 class CwxPanel;
 class DvkPanel;
@@ -121,6 +127,7 @@ private slots:
     // Radio/connection events
     void onConnectionStateChanged(bool connected);
     void onConnectionError(const QString& msg);
+    void onRadioMessage(const QString& text, MessageSeverity severity);
     void onSliceAdded(SliceModel* slice);
     void onSliceRemoved(int id);
 
@@ -175,8 +182,16 @@ private:
                           TuneIntent intent, const char* source);
     void applyPanRangeRequest(const QString& panId, double centerMhz,
                               double bandwidthMhz, const char* source);
+    // leftFlagEdgeOffsetMhz / rightFlagEdgeOffsetMhz extend the trigger
+    // comparison out to the VFO flag's outer edges so the flag panel never
+    // clips a pan edge.  Only IncrementalTune consumes the offsets; other
+    // intents (CommandedTargetCenter, RevealOffscreen) ignore them.  Default
+    // 0.0 preserves the original slice-frequency comparison for non-flag
+    // callers.  See #2761 + panFollowVfo() for the integration site.
     TuneCenteringResult revealFrequencyIfNeeded(SliceModel* slice, double mhz,
-                                                TuneIntent intent, const char* source);
+                                                TuneIntent intent, const char* source,
+                                                double leftFlagEdgeOffsetMhz = 0.0,
+                                                double rightFlagEdgeOffsetMhz = 0.0);
     void logTunePolicyDecision(const char* source, TuneIntent intent,
                                double oldFreqMhz, double newFreqMhz,
                                const TuneCenteringResult& result) const;
@@ -254,6 +269,15 @@ private:
     // failed (e.g. allocation failure).
     AetherDspDialog* ensureAetherDspDialog();
 
+    // Wire the txBandSettingsRequested, serialSettingsChanged (HAVE_SERIALPORT),
+    // sliceLetterDisplayModeChanged, and QDialog::finished handlers on a freshly-
+    // constructed RadioSetupDialog.  Called from every entry point (Settings →
+    // Radio Setup, FlexControl, USB Cables, XVTR overlay) so all four sites share
+    // identical wiring once they converge on the single PersistentDialog instance
+    // (#2781).  prevComp is the audio-compression value captured at open time so
+    // the finished handler can detect a change and recreate the RX audio stream.
+    void wireRadioSetupDialogSignals(RadioSetupDialog* dlg, const QString& prevComp);
+
     // Reorder the main splitter so the applet panel sits on the left or
     // right of the panadapter stack.  Wired from the dock-side icons in
     // the title bar and persisted via "AppletPanelDockedLeft".
@@ -281,6 +305,7 @@ private:
     void showPanadapterSliceCapacityMessage();
     void updatePaTempLabel();
     void showNetworkDiagnosticsDialog();
+    void showAx25HfPacketDecodeDialog();
     QJsonObject buildControlDevicesSnapshot() const;
     void showPropDashboard();
     bool confirmClientSlotAvailability(const RadioInfo& info, QList<quint32>* disconnectHandles);
@@ -488,13 +513,15 @@ private:
 
     // Modeless dialogs
     QPointer<DxClusterDialog> m_spotHubDialog;
-    QPointer<QDialog> m_radioSetupDialog;
+    QPointer<RadioSetupDialog> m_radioSetupDialog;
     QPointer<NetworkDiagnosticsDialog> m_networkDiagnosticsDialog;
-    QPointer<QDialog> m_propDashboardDialog;
-    QPointer<QDialog> m_txBandDialog;
+    QPointer<PropDashboardDialog> m_propDashboardDialog;
+    QPointer<TxBandDialog> m_txBandDialog;
     QPointer<MemoryDialog> m_memoryDialog;
+    QPointer<Ax25HfPacketDecodeDialog> m_ax25HfPacketDecodeDialog;
     QPointer<WhatsNewDialog> m_whatsNewDialog;
     QPointer<AetherDspDialog> m_dspDialog;
+    QPointer<WaveformsDialog> m_waveformsDialog;
     QPointer<ProfileManagerDialog> m_profileManagerDialog;
     QPointer<ProfileImportExportDialog> m_profileImportExportDialog;
 #ifdef HAVE_MIDI
@@ -565,6 +592,8 @@ private:
     // helpers do not echo model-driven changes back to the radio.
     bool m_updatingFromModel{false};
     bool m_shuttingDown{false};
+    bool m_panadapterUiPreparedForShutdown{false};
+    void preparePanadapterUiForShutdown();
     void toggleConnectionDialog();
     bool m_useSystemClock{true};     // true when no GPS installed
     bool m_paTempUseFahrenheit{true};
@@ -620,6 +649,10 @@ private:
     QHash<QString, WaterfallLineDurationReconcileState> m_wfLineDurationReconcile;
     QHash<QString, QMetaObject::Connection> m_wfLineDurationReconcileConnections;
     QTimer* m_layoutRestoreTimer{nullptr}; // debounced layout rearrange after pans added on connect
+    qint64 m_layoutRestoreUntilMs{0};
+    // User layout choices should suppress startup rearrange, but still allow
+    // the pending timer to restore saved floating pan windows.
+    bool m_suppressStartupPanLayoutRearrange{false};
     QTimer* m_heartbeatMissTimer{nullptr}; // fires every 1.5s to detect missed discovery beats
     QTimer* m_bsExpiryTimer{nullptr};    // band-stack bookmark auto-expiry, started on connect only (#1471)
     QTimer* m_bsAutoSaveTimer{nullptr};  // band-stack dwell auto-save (single-shot per dwell window)
@@ -707,8 +740,17 @@ private:
     QString m_lastRadeRxCallsign;
     void activateRADE(int sliceId);
     void deactivateRADE();
+    void onRadeSliceModeChanged(const QString& mode);
     void startFreeDvReporting(int sliceId);
     void stopFreeDvReporting(int sliceId);
+    // FreeDV Docker waveform sync/SNR display state
+    int  m_fdvDisplaySliceId{-1};
+    int  m_fdvSnrMeterIndex{-1};
+    bool m_fdvSynced{false};
+    void activateFdvDisplay(int sliceId);
+    void deactivateFdvDisplay();
+    void onFdvMeterUpdated(int index, float value);
+    void onFdvMetersChanged();
 #endif
 
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
