@@ -11,6 +11,7 @@
 7. Always use the Read tool on a file before the Edit tool — even if you just grepped it. Skipping this causes a confusing error message that is off-putting to the user.
 8. Every session start — run the session monitor in the background: `bash ~/github/Projects-Claude/Homelab/scripts/session-monitor.sh`
 9. Chris has health conditions that affect memory. Document EVERYTHING as we go — decisions, fixes, configs, and the WHY behind them. RESUME.md must always reflect current state. Disaster recovery is a top priority: every service needs a clear recovery path written down so the cluster can be rebuilt without relying on memory.
+10. Always run Opus adversarial review before declaring any PR done and pushing. No exceptions. The Opus review on PR #2995 caught a missing isConnected() guard before it shipped.
 
 ## Last completed work
 
