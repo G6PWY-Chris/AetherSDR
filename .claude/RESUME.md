@@ -14,14 +14,13 @@
 
 ## Last completed work
 
+- **2026-05-23** — PR #2995 OPEN — fix(rigctl): eliminate UAF of RigctlProtocol in queued lambdas (issue #2990). Fixed 16 `[this]` captures → `[model = m_model, ...]`. Upstream had expanded file from 711→1710 lines mid-session; caught all new sites. Opus review: PASS WITH NOTES (isConnected guard added). Awaiting CI + Jeremy.
 - **2026-05-17** — PR #2823 OPEN — feat(models): add RadioModel::autoSaveChanged signal, wire ProfileManagerDialog (issue #2794). Opus adversarial review: PASS, recommend merge as-is. Awaiting CI + Jeremy review.
 - **2026-05-16** — PR #2642 MERGED ✓ — fix(gui): display TX timeout in seconds instead of milliseconds
-- **2026-05-16** — Session start: rebased local main onto upstream/main (skipped already-merged 200a302).
-- **2026-05-14** — Local build fixed: installed libssl-dev, CMake now uses system OpenSSL 3.0.13
-- **2026-05-14** — git ship workflow fixed: two-step (ship + ship-pr), branches from upstream/main only
 
 ## PR status
 
+- **PR #2995** — OPEN — fix(rigctl): UAF of RigctlProtocol in queued lambdas (#2990)
 - **PR #2823** — OPEN — feat(models): add RadioModel::autoSaveChanged signal (#2794)
 - **PR #2642** — MERGED ✓ — fix(gui): display TX timeout in seconds instead of milliseconds
 
