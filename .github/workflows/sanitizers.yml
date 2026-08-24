@@ -49,6 +49,10 @@ jobs:
             build_type: RelWithDebInfo
             extra_cxx: "-fsanitize=thread -g3 -fno-omit-frame-pointer -O1"
             extra_ld:  "-fsanitize=thread"
+            # The `suppressions=` path is appended at RUNTIME by the test
+            # step below, NOT here. See the comment there — it must be an
+            # absolute path *inside the container*, which no expression
+            # context can give us.
             runtime_env: |
               TSAN_OPTIONS=halt_on_error=0:second_deadlock_stack=1:history_size=7:print_summary=1
 
@@ -96,6 +100,38 @@ jobs:
           done <<'EOF'
           ${{ matrix.sanitizer.runtime_env }}
           EOF
+          # --- TSan suppressions -------------------------------------------
+          # Silences a data race that lives ENTIRELY inside PulseAudio's
+          # libpulsecommon, triggered by this container having no audio
+          # device. It failed this job every week from 2026-07-20 while
+          # AetherSDR's own assertions passed ("2/2 checks passed").
+          # Read .github/tsan.supp's header before changing anything: the
+          # patterns are deliberately narrow, so a real race in OUR code
+          # still fails the build.
+          #
+          # 🔴 WHY THIS IS COMPUTED HERE AND NOT IN runtime_env:
+          # this job runs in a CONTAINER. `${{ github.workspace }}` expands
+          # to the RUNNER HOST path (/home/runner/work/...), which does not
+          # exist inside the container — the checkout is at /__w/... instead.
+          # Using it would silently point TSan at a missing file, and TSan
+          # does not fail when a suppression file is absent: the race would
+          # come straight back and look like the fix never worked.
+          # $GITHUB_WORKSPACE *is* rewritten to the in-container path, so it
+          # is correct here; $PWD is the belt-and-braces fallback because run
+          # steps default to the workspace directory.
+          if [ -n "${TSAN_OPTIONS:-}" ]; then
+            supp="$GITHUB_WORKSPACE/.github/tsan.supp"
+            [ -f "$supp" ] || supp="$PWD/.github/tsan.supp"
+            if [ -f "$supp" ]; then
+              export TSAN_OPTIONS="$TSAN_OPTIONS:suppressions=$supp"
+              echo "TSan suppressions: $supp"
+            else
+              # Loud, because a missing file here degrades silently into the
+              # exact weekly false alarm this change exists to end.
+              echo "::warning::tsan.supp not found - PulseAudio races will report again"
+            fi
+          fi
+
           ec=0
           ctest --test-dir build --output-on-failure 2>&1 | tee sanitizer.log || ec=$?
           echo "exit=$ec" >> "$GITHUB_OUTPUT"
@@ -162,35 +198,59 @@ jobs:
               'Full `sanitizer.log` attached to the workflow run artifacts.',
             ].join('\n');
 
-            // The label combo (sanitizer + asan-ubsan|tsan) uniquely
-            // identifies the bucket, so the first open match is the
-            // sticky issue regardless of any title edits made by hand.
-            const open = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo:  context.repo.repo,
-              state: 'open',
-              labels: labels.join(','),
-              per_page: 100,
-            });
-            const existing = open.data[0];
+            // 🔴 REPORTING MUST NEVER BE THE THING THAT FAILS THE JOB.
+            // On a FORK with Issues disabled this step threw
+            //   HttpError: Issues has been disabled in this repository
+            // which killed the job at THIS step — so the real gate below
+            // ("Fail the job if sanitizer reported errors") was SKIPPED and
+            // never ran. The run still went red, but for the wrong reason:
+            // the failure email pointed at the bookkeeping, not at the
+            // sanitizer, and no report was ever surfaced anywhere.
+            // ⇒ The verdict belongs to the sanitizer step alone. Losing the
+            // tracking issue is a degraded convenience; losing the verdict
+            // is a broken check. Warn and carry on.
+            // 📌 The report is NOT lost when this path is taken — it is
+            // already uploaded as a run artifact by the previous step.
+            try {
+              // The label combo (sanitizer + asan-ubsan|tsan) uniquely
+              // identifies the bucket, so the first open match is the
+              // sticky issue regardless of any title edits made by hand.
+              const open = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                state: 'open',
+                labels: labels.join(','),
+                per_page: 100,
+              });
+              const existing = open.data[0];
 
-            if (existing) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo:  context.repo.repo,
-                issue_number: existing.number,
-                body,
-              });
-              core.notice(`Appended to #${existing.number}`);
-            } else {
-              const created = await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo:  context.repo.repo,
-                title,
-                labels,
-                body,
-              });
-              core.notice(`Opened #${created.data.number}`);
+              if (existing) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo:  context.repo.repo,
+                  issue_number: existing.number,
+                  body,
+                });
+                core.notice(`Appended to #${existing.number}`);
+              } else {
+                const created = await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo:  context.repo.repo,
+                  title,
+                  labels,
+                  body,
+                });
+                core.notice(`Opened #${created.data.number}`);
+              }
+            } catch (err) {
+              // Issues disabled, missing `issues: write`, or a fork token
+              // without permission. All three are environment facts, not
+              // sanitizer results.
+              core.warning(
+                `Could not file the tracking issue (${err.message}). ` +
+                `The sanitizer report is attached to this run as an artifact, ` +
+                `and the job will still fail below on the sanitizer result.`
+              );
             }
 
       - name: Fail the job if sanitizer reported errors

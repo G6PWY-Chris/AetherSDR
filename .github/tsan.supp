@@ -1,0 +1,51 @@
+# ThreadSanitizer suppressions — AetherSDR CI
+# ============================================================================
+# WHY THIS FILE EXISTS
+# ============================================================================
+# The weekly Sanitizers workflow failed EVERY RUN from 2026-07-20 onward (and
+# on 2026-07-06), reporting a ThreadSanitizer data race. Seven consecutive
+# failure emails were sent. The race is NOT in AetherSDR.
+#
+# Every frame of both reported races is inside PulseAudio's own library:
+#
+#   WARNING: ThreadSanitizer: data race
+#     Atomic read  ... pa_mutex_lock  (libpulsecommon-16.1.so)
+#     Previous write ... pa_xmalloc   (libpulsecommon-16.1.so)
+#     Thread T1 'threaded-ml' created by pa_thread_new (libpulsecommon-16.1.so)
+#   SUMMARY: ThreadSanitizer: data race (libpulsecommon-16.1.so) in pa_mutex_lock
+#
+# Not one AetherSDR translation unit appears in any stack. It is triggered by
+# the CI container having no audio device and no writable HOME, so
+# pa_context_connect() fails and PulseAudio races against itself during
+# teardown:
+#
+#   Home directory not accessible: Permission denied
+#   PulseAudioService: pa_context_connect() failed
+#   [SKIP] default output / RX   (no device on this runner)
+#
+# 🔴 The tests' OWN assertions passed ("2/2 checks passed"). They were recorded
+# as failures purely because TSan's warning made the process exit non-zero.
+#
+# ============================================================================
+# WHY SUPPRESS RATHER THAN FIX
+# ============================================================================
+# The bug is in a third-party shared library we do not build and cannot patch
+# from this repository. Suppression is the mechanism TSan provides for exactly
+# this case. It is NOT a way of quietening our own races.
+#
+# ⚠️ SCOPE IS DELIBERATELY NARROW — the library is named explicitly. A blanket
+# rule (e.g. `race:*`) would hide real AetherSDR races and turn this whole
+# workflow into theatre. If a race in our own code ever appears, this file will
+# NOT hide it. Do not widen these patterns.
+#
+# 📌 If the CI image ever gains a working audio device, or PulseAudio is
+# replaced by PipeWire in the container, re-test with this file removed before
+# assuming it is still needed.
+# ============================================================================
+
+# The racing library itself.
+race:libpulsecommon
+# Races reached THROUGH PulseAudio entry points (its internal 'threaded-ml'
+# mainloop thread), which is how the reported stacks are rooted.
+called_from_lib:libpulsecommon
+called_from_lib:libpulse.so
