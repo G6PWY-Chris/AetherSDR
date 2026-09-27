@@ -611,9 +611,10 @@ void AmpApplet::buildExpandedUI()
 
     // Seed size: the widest caption at the design font, measured now, while
     // the key still has its natural size hint. Both letterbox keys take this
-    // width, so it is measured over both captions — a PanelKey never grows to
-    // fit its text, and a caption wider than the seed would elide once the
-    // font or the aspect is retuned.
+    // width, so it is measured over both captions. Nothing binds today: the
+    // 16:9 floor off kKeyDesignHeight is wider than either caption. This keeps
+    // that true if the font or the aspect is retuned — a PanelKey never grows
+    // to fit its text, so a caption wider than its box would elide.
     QFont seedFont = m_stbyKey->font();
     seedFont.setPixelSize(kKeyFontDesignPx);
     const QFontMetrics seedMetrics(seedFont);

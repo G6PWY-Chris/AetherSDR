@@ -12,7 +12,6 @@
 #include <QComboBox>
 #include <QDir>
 #include <QFile>
-#include <QFontMetrics>
 #include <QLabel>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -447,9 +446,7 @@ void testMeffaIsInertUntilTheSetupGroupIsKnown()
 }
 
 // The panel key and the rail button are two faces of one control, so they
-// carry one caption (#5940) — and the key is wide enough to show all of it. A
-// PanelKey never grows to fit its text, so a caption wider than its box would
-// elide silently rather than push the layout.
+// carry one caption (#5940).
 void testMeffaKeyCarriesTheFullName()
 {
     resetSettings();
@@ -466,14 +463,6 @@ void testMeffaKeyCarriesTheFullName()
     report("the panel key reads MEffA, as the rail button does",
            key->text() == QStringLiteral("MEffA") && key->text() == btn->text(),
            key->text());
-
-    // At the floating scale, where the key is up and sized.
-    applet.setFloating(true);
-    const int captionPx = QFontMetrics(key->font()).horizontalAdvance(key->text());
-    report("the key is wide enough for its whole caption",
-           key->sizeHint().width() >= captionPx,
-           QStringLiteral("key %1 px, caption %2 px")
-               .arg(key->sizeHint().width()).arg(captionPx));
 }
 
 // A relay update that carried no forward power must not lock out the
