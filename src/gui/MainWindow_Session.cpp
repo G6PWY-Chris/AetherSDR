@@ -1751,8 +1751,8 @@ void MainWindow::wirePanLifecycle()
         }
     });
     // Legacy panadapterInfoChanged — only used for initial client-rendered
-    // display settings and local WNB/RF-gain restore. Profile-owned FFT
-    // processing and waterfall timing arrive through PanadapterModel status.
+    // display settings and local RF-gain restore. Profile-owned FFT
+    // processing, waterfall timing and WNB arrive through PanadapterModel status.
     // Per-pan frequency/level tracking is done via PanadapterModel signals in panadapterAdded.
     connect(&m_radioModel, &RadioModel::panadapterInfoChanged,
             this, [this]() {
@@ -1765,10 +1765,11 @@ void MainWindow::wirePanLifecycle()
             m_radioModel.setWaterfallAutoBlack(sw->wfAutoBlack());
             m_radioModel.setWaterfallAutoBlackSource(
                 sw->effectiveWfAutoBlackRadioSide());
-            // Restore saved WNB and RF gain
+            // Restore saved RF gain. WNB is not restored here: the radio owns
+            // it (FlexLib Panadapter.cs parses wnb/wnb_level from pan status),
+            // and replaying a client copy overwrote the profile value on every
+            // connect (#5111). wirePanadapter() mirrors the live pan status.
             auto& s = AppSettings::instance();
-            bool wnbOn = s.value(sw->settingsKey("DisplayWnbEnabled"), "False").toString() == "True";
-            int wnbLevel = s.value(sw->settingsKey("DisplayWnbLevel"), "50").toInt();
             // RF gain: push ONLY a value the operator actually saved.
             //
             // With no saved value there is nothing to restore, and the radio's
@@ -1794,17 +1795,13 @@ void MainWindow::wirePanLifecycle()
                 m_radioModel.backendCapabilities().clientSettingsDomains.testFlag(
                     RadioCapabilities::ClientSettingsDomain::RfGain);
             PanadapterModel* activePan = m_radioModel.activePanadapter();
-            m_radioModel.setPanWnb(wnbOn);
-            m_radioModel.setPanWnbLevel(wnbLevel);
             const int rfGain = restoreLegacyRfGain(
                 m_radioModel.backendCapabilities().family, clientOwnsRfGain,
                 haveSavedRfGain ? std::optional<int>(s.value(rfGainKey).toInt())
                                : std::nullopt,
                 activePan ? activePan->rfGain() : 0,
                 [this](int gain) { m_radioModel.setPanRfGain(gain); });
-            sw->setWnbActive(wnbOn);
             sw->setRfGain(rfGain);
-            sw->overlayMenu()->setWnbState(wnbOn, wnbLevel);
             sw->overlayMenu()->setRfGain(rfGain);
             QString bgPath = s.value(sw->settingsKey("BackgroundImage")).toString();
             if (!bgPath.isEmpty() && bgPath != "none")
