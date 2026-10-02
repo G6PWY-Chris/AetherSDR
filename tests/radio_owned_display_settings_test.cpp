@@ -34,6 +34,7 @@ int main(int argc, char** argv)
     settings.setValue("DisplayShowGrid", "False");
     settings.setValue("DisplayFftLineWidth_1", "2.5");
     settings.setValue("DisplayRfGain", "12");
+    settings.setValue("DisplayWnbEnabled_7", "True");
     settings.save();
 
     DisplaySettings::retireRadioOwnedPanSettings(0);
@@ -53,5 +54,9 @@ int main(int argc, char** argv)
     check(settings.value("DisplayShowGrid").toString() == "False", "client grid preserved");
     check(settings.value("DisplayFftLineWidth_1").toString() == "2.5", "client line width preserved");
     check(settings.value("DisplayRfGain").toString() == "12", "RF gain preserved");
+    // Retirement follows SpectrumWidget's key format even for larger layouts.
+    DisplaySettings::retireRadioOwnedPanSettings(7);
+    settings.load();
+    check(!settings.contains("DisplayWnbEnabled_7"), "higher pan slot retired");
     return failures ? 1 : 0;
 }

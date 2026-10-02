@@ -20,9 +20,6 @@ public:
     // the slot being loaded, preserving client-rendered and other-slot state.
     static void retireRadioOwnedPanSettings(int slot)
     {
-        if (!isValidPanSlotIndex(slot)) {
-            return;
-        }
         AppSettings& settings = AppSettings::instance();
         const QStringList keys = {
             QStringLiteral("DisplayFftAverage"),
