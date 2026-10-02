@@ -222,6 +222,11 @@ The shared RX/VFO/Phone/CW surfaces consume these declarations through
   and an undeclared backend reads as "not declared" rather than a confident no.
 - `hasModeIndependentSquelch` keeps MK2 squelch usable in CW/data. Other
   profiles keep their existing mode rules.
+  HL2 declares it FALSE explicitly: its squelch is host-side WDSP, routed by
+  mode family (FM → `fmsq` on pihpsdr's map; AM/SAM/DSB/LSB/USB → the level
+  squelch `amsq`, -140 + 0.7·level dBFS, measured on the radio; level 0 runs
+  nothing) and CW/data have no stage, so the existing client rule
+  that disables SQL there is the honest face (`WdspChannel::setSquelch`).
 - `hasFmRepeaterOffset` dims offset magnitude and direction when absent.
   MK2 has split operation, but not CI-V repeater commands 0C/0D or 0F 10–12;
   its profile suppresses those reads and writes. IC-705/9700 retain them.
@@ -629,10 +634,18 @@ Both live in one `std::optional<PanSpanModel> panSpanModel`. Absent is *not* a
 pair of `false`s: it means no backend has been read, and a client that needs the
 distinction checks `has_value()` before the fields.
 
-Both are declared and nothing reads them yet — the behaviour they describe is
-already implemented, by `Hl2Backend::applyPanBandwidth` snapping through
-`nearestIqSampleRateHz` and by `panBandwidthLimitsChanged` clamping the zoom
-control. What was missing was the **claim**, so a client had no way to ask.
+`followsSampleRate` is declared and nothing reads it yet — the behaviour it
+describes is already implemented, by `Hl2Backend::applyPanBandwidth` snapping
+through `nearestIqSampleRateHz` and by `panBandwidthLimitsChanged` clamping the
+zoom control. What was missing was the **claim**, so a client had no way to ask.
+
+`radioWide` has one consumer (#5750): `MainWindow::syncPanSpanControlPlacement`
+keeps the −/+ span pair **live** on one pane when it is true — the pane holding
+the TX slice, else the first docked pane in layout order — saying the span is
+shared, and **dims** it on every other pane with the reason in the tooltip and
+the accessible description (dimmed, never hidden). It leaves every pane its own
+live pair when it is false or the record is absent. The decision is `gui/PanSpanControlGate.h`, pinned in
+`tests/hl2_pan_limits_declaration_test.cpp` against the HL2's own declaration.
 
 On the HL2 the pan span *is* the DDC sample rate, so `sampleRatesHz` is not a
 list of stream rates that happens to exist alongside a span control: it is every
@@ -679,7 +692,6 @@ backend side the whole time.
 |---|:--:|:--:|:--:|---|
 | `sampleRatesHz` | — | 4 rates | `{}` | HL2 populates it honestly; no consumer exists. On the HL2 it is also the complete span set — see `panSpanModel` below |
 | `panSpanModel->followsSampleRate` | — (absent) | ✅ | — (absent) | The span IS the rate, so `sampleRatesHz` is every deliverable span and its first entry is a floor |
-| `panSpanModel->radioWide` | — (absent) | ✅ | — (absent) | One DDC rate for the board; a span change moves every receiver |
 | `dbmAxisIsCalibrated()` | — (absent ⇒ ✅) | ❌ | — (absent ⇒ ✅) | Whether the dBm axis is absolute. HL2 reads it off `Hl2DbReference::isCalibrated()` |
 | `txPowerMaxWatts` | — (0.0) | 0.0 | 0.0 | Global fallback ceiling; Flex still omits it despite transmitting, which remains wrong but inert while `txPowerBands` is empty |
 | `hasAmplifier` | — (❌) | ❌ | ❌ | The AMP applet is driven by `TunerModel::presenceChanged`, not by this |
