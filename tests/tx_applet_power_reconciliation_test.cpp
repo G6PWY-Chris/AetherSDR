@@ -993,8 +993,8 @@ void testMemButtonFollowsReadbackOnly()
     // button: the radio has not said memories are on (#5545).
     QSignalSpy commandSpy(&model, &TransmitModel::commandReady);
     mem->click();
-    report("MEM click sends the memories command",
-           !commandSpy.isEmpty()
+    report("MEM click sends the memories command once",
+           commandSpy.size() == 1
                && commandSpy.takeLast().at(0).toString()
                       == QStringLiteral("atu set memories_enabled=1"));
     report("MEM stays unlit until the radio echoes", !mem->isChecked());
@@ -1013,9 +1013,31 @@ void testMemButtonFollowsReadbackOnly()
                && commandSpy.takeLast().at(0).toString()
                       == QStringLiteral("atu set memories_enabled=0"));
     report("MEM stays lit until the radio echoes off", mem->isChecked());
+
+    // A programmatic toggle (the automation bridge's toggle and setChecked
+    // actions) emits toggled but not clicked; it must still send the request
+    // and leave the paint on the readback.
+    TransmitDelta echoedOff;
+    echoedOff.memoriesEnabled = false;
+    model.applyChanges(echoedOff);
+    commandSpy.clear();
+    mem->toggle();
+    report("MEM toggle() sends memories_enabled=1",
+           !commandSpy.isEmpty()
+               && commandSpy.takeLast().at(0).toString()
+                      == QStringLiteral("atu set memories_enabled=1"));
+    report("MEM toggle() stays unlit until the radio echoes", !mem->isChecked());
+    commandSpy.clear();
+    mem->setChecked(true);
+    report("MEM setChecked(true) sends memories_enabled=1",
+           !commandSpy.isEmpty()
+               && commandSpy.takeLast().at(0).toString()
+                      == QStringLiteral("atu set memories_enabled=1"));
+    report("MEM setChecked(true) stays unlit until the radio echoes",
+           !mem->isChecked());
 }
 
-void testMemButtonClearsOnDisconnect()
+void testMemButtonResyncsOnResetState()
 {
     TransmitModel model;
     TxApplet applet;
@@ -1034,7 +1056,9 @@ void testMemButtonClearsOnDisconnect()
     model.applyChanges(echoed);
     report("MEM is lit by the radio's readback", mem->isChecked());
 
-    // Disconnect clears memoriesEnabled; the button must follow it (#5545).
+    // Disconnect clears memoriesEnabled. resetState() emits apdStateChanged,
+    // not atuStateChanged; the button follows only because the APD handler
+    // also runs syncAtuIndicators(). Guards that path, not the click fix.
     model.resetState();
     report("MEM clears on disconnect", !mem->isChecked());
 }
@@ -1072,7 +1096,7 @@ int main(int argc, char** argv)
     testTuneAvailability();
     testAtuContextMenuExplainsWhyPreTuneIsDisabled();
     testMemButtonFollowsReadbackOnly();
-    testMemButtonClearsOnDisconnect();
+    testMemButtonResyncsOnResetState();
 
     std::printf("\n%s\n",
                 g_failed == 0
